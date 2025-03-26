@@ -8,9 +8,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-
+import java.io.BufferedReader;
 //Import for logging exercise
 import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
@@ -51,6 +52,7 @@ public class SQLiteConnectionManager {
      */
     public SQLiteConnectionManager(String filename) {
         databaseURL = "jdbc:sqlite:sqlite/" + filename;
+        logger.log(Level.INFO, "SQLiteConnectionManager initialised with database file: {0}", filename);
 
     }
 
@@ -64,12 +66,14 @@ public class SQLiteConnectionManager {
         try (Connection conn = DriverManager.getConnection(databaseURL)) {
             if (conn != null) {
                 DatabaseMetaData meta = conn.getMetaData();
-                System.out.println("The driver name is " + meta.getDriverName());
-                System.out.println("A new database has been created.");
+                logger.log(Level.INFO,"The driver name is {0}", meta.getDriverName());
+                logger.log(Level.INFO, "A new database has been created: {0}", databaseURL);
 
             }
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            logger.log(Level.SEVERE, "Error creating database: " + databaseURL, e);
+            //System.out.println("Error creating database, See log file for details.");
+
         }
     }
 
@@ -85,10 +89,11 @@ public class SQLiteConnectionManager {
         } else {
             try (Connection conn = DriverManager.getConnection(databaseURL)) {
                 if (conn != null) {
+                    logger.log(Level.FINE, "Connection to database established: {0}", databaseURL);
                     return true;
                 }
             } catch (SQLException e) {
-                System.out.println(e.getMessage());
+                logger.log(Level.WARNING, "Error checking database connection:" + databaseURL, e);
                 return false;
             }
         }
@@ -107,13 +112,18 @@ public class SQLiteConnectionManager {
             try (Connection conn = DriverManager.getConnection(databaseURL);
                     Statement stmt = conn.createStatement()) {
                 stmt.execute(WORDLE_DROP_TABLE_STRING);
+                logger.log(Level.FINE, "Dropped table: wordlist");
                 stmt.execute(WORDLE_CREATE_STRING);
+                logger.log(Level.FINE, "Created table: validWords");
                 stmt.execute(VALID_WORDS_DROP_TABLE_STRING);
+                logger.log(Level.FINE, "Dropped table: validWords");
                 stmt.execute(VALID_WORDS_CREATE_STRING);
+                logger.log(Level.FINE, "Created table: validWords");
                 return true;
 
             } catch (SQLException e) {
-                System.out.println(e.getMessage());
+                logger.log(Level.SEVERE, "Error creating wordle tables in database: " + databaseURL, e);
+                //System.out.println("Error setting up game tables.See log file for detail.");
                 return false;
             }
         }
@@ -134,8 +144,10 @@ public class SQLiteConnectionManager {
                     pstmt.setInt(1, id); // set parameters 1 and 2
                     pstmt.setString(2,word);
             pstmt.executeUpdate();
+            logger.log(Level.FINE, "Added valid word: {0} with id: {1}", new Object[] { word, id });
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            logger.log(Level.WARNING, "Error adding valid word: " + word + " to database:" + databaseURL, e);
+            //System.out.println("Error adding a word. See log file for details.");
         }
 
     }
@@ -158,15 +170,71 @@ public class SQLiteConnectionManager {
             ResultSet resultRows = stmt.executeQuery();
             if (resultRows.next()) {
                 int result = resultRows.getInt("total");
-                return (result >= 1);
+                if (result >= 1) {
+                    logger.log(Level.FINE, "Checked if word '{0}' is valid. Result: true", guess);
+                    return true;
+                } else {
+                    logger.log(Level.FINE, "Checked if word '{0}' is valid. Result: false", guess);
+                    return false;
+                }
             }
 
             return false;
 
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            logger.log(Level.WARNING, "Error checking if word '" + guess + "' is valid in database:" + databaseURL, e);
+            //System.out.println("Error checking word validity. See log file for details.");
             return false;
         }
 
     }
+ public void loadValidWordsFromFile(String filePath) {
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            int id = 1;
+            while ((line = br.readLine()) != null) {
+                String word = line.trim();
+                if (isValidWord(word)) {
+                    addValidWord(id++, word);
+                    logger.log(Level.FINE, "Loaded valid word from file: {0}", word);
+                } else {
+                    logger.log(Level.SEVERE, "Invalid word format in file: {0}", word);
+                }
+            }
+            logger.log(Level.INFO, "Finished loading valid words from file: {0}", filePath);
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Error reading valid words from file: " + filePath, e);
+            //System.out.println("Error reading word list file. See log file for details."); // Generic user message
+        }
+    }
+
+ /**
+     * Basic check if a word is in a valid format (e.g., only letters).
+     * This can be expanded based on the game's requirements.
+     *
+     * @param word the word to check.
+     * @return true if the word format is valid, false otherwise.
+     */
+    private boolean isValidWordFormat(String word) {
+        return word != null && word.matches("[a-zA-Z]+");
+    }
+
+    // Hypothetical method to handle invalid guesses (assuming this class might receive guesses)
+    public void logInvalidGuess(String guess) {
+        logger.log(Level.INFO, "Invalid guess: {0}", guess);
+        System.out.println("Invalid guess."); // Game-related info to console
+    }
+
+
+    public static void main(String[] args) {
+        SQLiteConnectionManager manager = new SQLiteConnectionManager("wordle.db");
+        manager.createNewDatabase("wordle.db");
+        if (manager.checkIfConnectionDefined()) {
+            manager.createWordleTables();
+            // Load words from data.txt (assuming data.txt is in the project root or a specified path)
+            manager.loadValidWordsFromFile("data.txt");
+     
+        }
+
+}
 }
